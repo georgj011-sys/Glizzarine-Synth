@@ -1,0 +1,45 @@
+name: Build Glizzarine (Windows)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  # 1) the plugin itself - download it under Artifacts: Glizzarine-Windows
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -A x64
+      - name: Build plugin
+        run: cmake --build build --config Release --parallel --target Glizzarine_VST3 Glizzarine_Standalone
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Glizzarine-Windows
+          path: |
+            build/Glizzarine_artefacts/Release/VST3/
+            build/Glizzarine_artefacts/Release/Standalone/
+
+  # 2) the tests with the Windows compiler - separate, never blocks the plugin download
+  tests:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -A x64 -DGLZ_TESTS=ON
+      - name: Build tests
+        run: cmake --build build --config Release --parallel --target test_bounce test_fuzz test_cpu
+      - name: Export test (offline bounce, odd block sizes, sample-rate change)
+        if: always()
+        run: build/Release/test_bounce.exe 20
+      - name: Fuzz (random MIDI, parameters, block sizes, two instances)
+        if: always()
+        run: |
+          build/Release/test_fuzz.exe 60 1; if ($LASTEXITCODE) { exit 1 }
+          build/Release/test_fuzz.exe 60 2; if ($LASTEXITCODE) { exit 1 }
+      - name: CPU (10 voices, all effects)
+        if: always()
+        run: build/Release/test_cpu.exe
